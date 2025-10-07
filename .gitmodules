@@ -1,0 +1,6 @@
+[submodule "webste-book-backend"]
+	path = webste-book-backend
+	url = git@github.com:dvhoang03/webste-book-backend.git
+[submodule "website-book-frontend"]
+	path = website-book-frontend
+	url = git@github.com:dvhoang03/website-book-frontend.git
