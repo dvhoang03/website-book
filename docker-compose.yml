@@ -1,0 +1,129 @@
+version: '3.9'
+
+services:
+  # -----------------------------------------------------------------
+  # 1. MAIN BACKEND (NestJS)
+  # -----------------------------------------------------------------
+  api:
+    build:
+      # Quan trọng: Trỏ vào thư mục con chứa code NestJS
+      context: ./webste-book-backend 
+      dockerfile: Dockerfile
+    container_name: nestjs_api
+    restart: unless-stopped
+    # File .env nằm ngay cạnh docker-compose.yml nên để đường dẫn là ./
+    env_file:
+      - ./.env
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+      chatbot_python: 
+        condition: service_started
+
+  # -----------------------------------------------------------------
+  # 2. CHATBOT AI SERVICE (Python FastAPI)
+  # -----------------------------------------------------------------
+  chatbot_python:
+    build:
+      # Quan trọng: Trỏ vào thư mục con chứa code Python (theo tên trong ảnh bạn gửi)
+      context: ./website-book-chatbot 
+      dockerfile: Dockerfile
+    container_name: chatbot_python
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      # Kết nối sang service 'db' trong mạng nội bộ Docker
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # -----------------------------------------------------------------
+  # 3. DATABASE (PostgreSQL + pgvector)
+  # -----------------------------------------------------------------
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      # Tạo thư mục data ngay tại root để dễ quản lý
+      - ./postgres_data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # -----------------------------------------------------------------
+  # 4. DB SETUP (Script tạo User Bot)
+  # -----------------------------------------------------------------
+  db_setup:
+    image: pgvector/pgvector:pg16
+    container_name: db_setup
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    # Quan trọng: Bạn cần đảm bảo thư mục scripts nằm ở Root
+    volumes:
+      - ./scripts:/scripts 
+    environment:
+      PGPASSWORD: ${DB_PASSWORD}
+    entrypoint: ["/bin/bash", "-c"]
+    command: 
+      - |
+        echo "Waiting for database..."
+        sleep 5
+        echo "Running setup script..."
+        # Kiểm tra xem file có tồn tại không trước khi chạy
+        if [ -f /scripts/create-bot-user.sql ]; then
+            psql -h db -U ${DB_USER} -d ${DB_NAME} -f /scripts/create-bot-user.sql
+            echo "Setup done!"
+        else
+            echo "File /scripts/create-bot-user.sql not found. Skipping setup."
+        fi
+
+  # -----------------------------------------------------------------
+  # 5. CÁC SERVICE PHỤ TRỢ
+  # -----------------------------------------------------------------
+  redis:
+    image: redis:7.4
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: [ "redis-server", "--appendonly", "yes" ]
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./minio_data:/data
+
+volumes:
+  redis_data:
