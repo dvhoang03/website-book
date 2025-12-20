@@ -10,6 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.messages import HumanMessage, AIMessage
+from pgvector.sqlalchemy import Vector
 
 # Load biến môi trường
 load_dotenv()
@@ -17,15 +18,22 @@ app = FastAPI()
 
 # 1. Cấu hình Database & AI
 db_uri = os.getenv("DATABASE_URL")
-db = SQLDatabase.from_uri(db_uri, sample_rows_in_table_info=0)
+# Chỉ định rõ các bảng liên quan đến thông tin sách để LangChain không quét bảng 'policies' (chứa vector)
+# Việc này sẽ giúp tránh lỗi "Did not recognize type 'vector'"
+db = SQLDatabase.from_uri(
+    db_uri, 
+    include_tables=['books', 'authors', 'categories'], # Liệt kê các bảng text thuần túy của bạn
+    sample_rows_in_table_info=0
+)
 api_key = os.getenv("GOOGLE_API_KEY")
 engine = create_engine(db_uri)
 
 # Model chính
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-flash-latest", # KHÔNG CÓ chữ 'models/'
     google_api_key=api_key,
     temperature=0,
+    max_retries=1,
     convert_system_message_to_human=True
 )
 
@@ -206,3 +214,7 @@ async def chat_endpoint(req: ChatRequest):
         source = "chitchat"
 
     return {"source": source, "content": response}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
