@@ -3,4 +3,4 @@
 	url = git@github.com:dvhoang03/webste-book-backend.git
 [submodule "website-book-frontend"]
 	path = website-book-frontend
-	url = git@github.com:dvhoang03/website-book-frontend.git
+	url = https://github.com/hoangvbhp142/book_store_FE.git
